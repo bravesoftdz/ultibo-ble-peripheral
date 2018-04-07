@@ -1,0 +1,8 @@
+[pi3]
+kernel=ultibo-ble-peripheral-kernel7.img
+
+[pi0]
+kernel=ultibo-ble-peripheral-kernel.img
+
+[all]
+cmdline=ultibo-ble-peripheral-cmdline.txt
