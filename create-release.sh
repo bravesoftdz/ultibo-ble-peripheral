@@ -10,6 +10,7 @@ mkdir -p release
 rm -rf release/*
 
 ./build.sh
+cp -a BCM43430A1.hcd release/
 cp -a kernel7.img release/$PREFIX-kernel7.img
 cp -a $PREFIX-config.txt $PREFIX-cmdline.txt release/
 cp -a release/$PREFIX-config.txt release/config.txt
