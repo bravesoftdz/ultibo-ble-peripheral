@@ -24,6 +24,7 @@ var
  ch : char;
  HTTPListener:THTTPListener;
  KeyboardMonitorHandle:TThreadHandle = INVALID_HANDLE_VALUE;
+ LightBulb:PBleAttribute;
 
 procedure Log1(s : string);
 begin
@@ -50,7 +51,10 @@ begin
 end;
 
 procedure StartLeAdvertising;
+var 
+ ZeroAddress:TBDAddr = ($00,$00,$00,$00,$00,$00);
 begin
+ SetLEAdvertisingParameters(1000,1000,ADV_IND,$00,$00,ZeroAddress,$07,$00);
  ClearAdvertisingData;
  AddAdvertisingData(ADT_FLAGS,[$1a]);
  AddAdvertisingData(ADT_COMPLETE_LOCAL_NAME,'Ultibo');
@@ -72,8 +76,6 @@ begin
                    Sleep(1*1000);
                    SystemRestart(0);
                   end;
-  //OPEN_PORT      : Log1('Opening UART0.');
-  //CLOSE_PORT     : Log1('Closing UART0.');
   CONNECTION_TERMINATED: StartLeAdvertising;
   INIT_COMPLETE  :
                   begin
@@ -135,6 +137,7 @@ end;
 procedure StartLogging;
 begin
  LOGGING_INCLUDE_COUNTER:=False;
+ LOGGING_INCLUDE_TICKCOUNT:=True;
  CONSOLE_REGISTER_LOGGING:=True;
  LoggingConsoleDeviceAdd(ConsoleDeviceGetDefault);
  LoggingDeviceSetDefault(LoggingDeviceFindByType(LOGGING_TYPE_CONSOLE));
@@ -144,7 +147,6 @@ procedure ImmediateAlertChanged(Attribute:PBleAttribute);
 begin
  Log('');
  Log(Format('Immediate Alert - Level %d',[Attribute^.Value[0]]));
- Log('');
 end;
 
 begin
@@ -156,6 +158,9 @@ begin
  Help;
  BuildAttributes;
  ImmediateAlertLevel^.OnChanged:=@ImmediateAlertChanged;
+ AddService($ffe5);
+ AddCharacteristic(LightBulb,$ffe9,7,7,'Light Bulb',ATT_PROPERTY_READ or ATT_PROPERTY_WRITE);
+ LightBulb^.SetArray([$56,0,0,0,$00,$F0,$AA]);
  WaitForSDDrive;
 
  HTTPListener:=THTTPListener.Create;
@@ -175,4 +180,5 @@ begin
  ReadBDADDR;                           // read newly assigned BD address
  AddMarker(INIT_COMPLETE);             // indicate initialisation complete
  StartLeAdvertising;
+ StartPassiveScanning;
 end.

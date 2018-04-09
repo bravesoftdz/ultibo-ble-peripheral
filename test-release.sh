@@ -9,4 +9,4 @@ unzip *.zip
 rm *.zip
 sudo cp ultibo-ble-peripheral-* config.txt /boot
 sleep 5
-#sudo reboot
+sudo reboot

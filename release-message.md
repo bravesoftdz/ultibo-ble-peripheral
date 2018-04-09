@@ -24,6 +24,8 @@
 
 # Operation:
 * scan for device "Ultibo" using nRF Connect (by Nordic) on the phone
-* the name attribute should return "Ultibo Name"
-* the immediate alert attribute when written should show a message in the log
-* the battery level can be read - use +/- on the usb keyboard to change it
+    * the name attribute should return "Ultibo Name"
+    * the immediate alert attribute when written should show a message in the log
+    * the battery level can be read - use +/- on the usb keyboard to change it
+* set up one or more advertising packets using nRF Connect (by Nordic) on the phone
+    * each time the packet is enabled a different random mac address is used, so toggling the packet on and off should produce messages in the log

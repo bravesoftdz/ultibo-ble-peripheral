@@ -24,34 +24,39 @@ const
  AttributePermissionWrite        = $02;
  AttributePermissionWriteCommand = $04;
 
- HCI_COMMAND_PKT              = $01;
- HCI_ACLDATA_PKT              = $02;
- HCI_SCODATA_PKT              = $03;
- HCI_EVENT_PKT                = $04;
- HCI_VENDOR_PKT               = $ff;
+ HCI_COMMAND_PKT                 = $01;
+ HCI_ACLDATA_PKT                 = $02;
+ HCI_SCODATA_PKT                 = $03;
+ HCI_EVENT_PKT                   = $04;
+ HCI_VENDOR_PKT                  = $ff;
 
  // Markers
- FIRMWARE_START                = 100;
- FIRMWARE_END                  = 101;
- DELAY_50MSEC                  = 102;
- DELAY_2SEC                    = 103;
- INIT_COMPLETE                 = 104;
- FLUSH_PORT                    = 105;
- OPEN_PORT                     = 106;
- CLOSE_PORT                    = 107;
- SEND_DATA                     = 108;
- SYSTEM_RESTART                = 109;
- CONNECTION_TERMINATED         = 110;
+ FIRMWARE_START                  = 100;
+ FIRMWARE_END                    = 101;
+ DELAY_50MSEC                    = 102;
+ DELAY_2SEC                      = 103;
+ INIT_COMPLETE                   = 104;
+ FLUSH_PORT                      = 105;
+ OPEN_PORT                       = 106;
+ CLOSE_PORT                      = 107;
+ SEND_DATA                       = 109;
+ SYSTEM_RESTART                  = 109;
+ CONNECTION_TERMINATED           = 110;
+ SET_DEFAULT_BAUD                = 111;
+ SET_TURBO_BAUD                  = 112;
 
- BDADDR_LEN                 = 6;
+ BDADDR_LEN                      = 6;
 
- OGF_MARKER                    = $00;
- OGF_LINK_CONTROL             = $01;
- OGF_LINK_POLICY               = $02;
- OGF_HOST_CONTROL              = $03;
- OGF_INFORMATIONAL             = $04;
- OGF_LE_CONTROL                = $08;
- OGF_VENDOR                    = $3f;
+ OGF_MARKER                      = $00;
+ OGF_LINK_CONTROL                = $01;
+ OGF_LINK_POLICY                 = $02;
+ OGF_HOST_CONTROL                = $03;
+ OGF_INFORMATIONAL               = $04;
+ OGF_LE_CONTROL                  = $08;
+ OGF_VENDOR                      = $3f;
+
+ BT_DEFAULT_BAUD                 = 115200;
+ BT_TURBO_BAUD                   = 115200; // 230400; // 460800; 921600;
 
 type 
  TBTMarkerEvent = procedure (no:integer);
@@ -81,6 +86,8 @@ procedure NoOP;
 procedure AddMarker(Marker:Word);
 procedure SetMarkerEvent(anEvent:TBTMarkerEvent);
 procedure SetLEEvent(anEvent:TBTLEEvent);
+procedure SetLEScanParameters (Type_ : byte; Interval, Window : Word; OwnAddressType, FilterPolicy : byte);
+procedure SetLEScanEnable (State, Duplicates : boolean);
 
 // HCI Commands
 procedure ResetChip;
@@ -97,11 +104,7 @@ procedure SetLEEventMask(Mask:QWord);
 procedure ReadLEBufferSize;
 procedure ReadLESupportedFeatures;
 procedure SetLERandomAddress(Addr:TBDAddr);
-procedure SetLEAdvertisingParameters(MinInterval,MaxInterval:Word;
-                                     Type_:byte;
-                                     OwnAddressType,PeerAddressType:byte;
-                                     PeerAddr:TBDAddr;
-                                     ChannelMap,FilterPolicy:byte);
+procedure SetLEAdvertisingParameters(MinInterval,MaxInterval:Word; Type_:byte; OwnAddressType,PeerAddressType:byte; PeerAddr:TBDAddr; ChannelMap,FilterPolicy:byte);
 procedure ReadLEAdvertisingChannelTxPower;
 procedure SetLEAdvertisingData(Data:array of byte);
 procedure SetLEScanResponseData(Data:array of byte);
@@ -110,7 +113,6 @@ procedure LERand;
 
 // BCM Vendor Specific
 procedure BCMSetBDAddr(Addr:TBDAddr);
-//procedure BCMEnableRadio(Enable:boolean);
 procedure BCMLoadFirmware(fn:string);
 function EventTypeToStr(Type_:byte):string;
 
@@ -130,6 +132,7 @@ type
   procedure AddWord(X:Word);
   procedure SetByte(X:Byte);
   procedure SetWord(X:Word);
+  procedure SetArray(X:Array of Byte);
   procedure SetString(X:String);
   function ReadByte:Byte;
   function ReadWord:Word;
@@ -151,6 +154,15 @@ var
 
 procedure Log(Message:String);
 procedure BuildAttributes;
+procedure AddService(Uuid:Word);
+procedure AddCharacteristic(var Value:PBleAttribute;Uuid:Word;MinWriteLength,MaxWriteLength:Integer;UserDescriptor:String;Properties:Byte);
+
+const 
+ ADV_IND                     = $00; // Connectable undirected advertising(default)
+ ADV_DIRECT_IND_HI           = $01; // Connectable high duty cycle directed advertising
+ ADV_SCAN_IND                = $02; // Scannable undirected advertising
+ ADV_NONCONN_IND             = $03; // Non connectable undirected advertising
+ ADV_DIRECT_IND_LO           = $04; // Connectable low duty cycle directed advertising
 
 implementation
 
@@ -170,18 +182,10 @@ var
  MarkerEvent:TBTMarkerEvent = Nil;
  LEEvent:TBTLEEvent = Nil;
 
-const 
- ADV_IND                     = $00; // Connectable undirected advertising(default)
- ADV_DIRECT_IND_HI           = $01; // Connectable high duty cycle directed advertising
- ADV_SCAN_IND                = $02; // Scannable undirected advertising
- ADV_NONCONN_IND             = $03; // Non connectable undirected advertising
- ADV_DIRECT_IND_LO           = $04; // Connectable low duty cycle directed advertising
-
-
 function EventTypeToStr(Type_:byte):string;
 begin
  case Type_ of 
-  ADV_IND          :Result:='Connectable undirected advertising(default)';
+  ADV_IND          :Result:='Connectable undirected advertising (default)';
   ADV_DIRECT_IND_HI:Result:='Connectable high duty cycle directed advertising';
   ADV_SCAN_IND     :Result:='Scannable undirected advertising';
   ADV_NONCONN_IND  :Result:='Non connectable undirected advertising';
@@ -248,8 +252,11 @@ begin
       begin
        num:=ev[3];          // num packets controller can accept
        op:=ev[5] * $100 + ev[4];
-       //Log('OGF ' + inttohex(ogf(op),2) + ' OCF ' + inttohex(ocf(op),3) + ' OP Code ' + inttohex(op,4) + ' Num ' + num.ToString + ' Len ' + len.ToString);
-       if (len > 3) and(ev[6] > 0) then Log('Status ' + ErrToStr(ev[6]));
+       if (len > 3) and(ev[6] > 0) then
+        begin
+         Log(Format('%s OGF %02.2x OCF %03.3x OP Code %04.4x Num %d Len %d',[ErrToStr(ev[6]),ogf(op),ocf(op),op,num,len]));
+         Sleep(30*1000);
+        end;
        case op of 
         $0c14:// read name
               begin
@@ -692,6 +699,29 @@ begin
 end;
 end;
 
+var 
+ SpecifiedBaud:LongWord = BT_DEFAULT_BAUD;
+
+procedure SetBaud(Baud:LongWord);
+var 
+ Params:Array of Byte;
+ LW,HW:Word;
+begin
+ SetLength(Params, 6);
+ LW:=Baud and $ffff;
+ HW:=(Baud shr 16) and $ffff;
+ Params[0]:=$00;
+ Params[1]:=$00;
+ Params[2]:=Lo(LW);
+ Params[3]:=Hi(LW);
+ Params[4]:=Lo(HW);
+ Params[5]:=Hi(HW);
+ AddHCICommand(OGF_VENDOR,$018,Params);
+ SpecifiedBaud:=Baud;
+ Log('');
+ Log(Format('setting baud %d',[SpecifiedBaud]));
+end;
+
 function OpenUART0:boolean;
 var 
  res:LongWord;
@@ -703,7 +733,9 @@ begin
    Log('Can''t find UART0');
    exit;
   end;
- res:=SerialDeviceOpen(UART0,115200,SERIAL_DATA_8BIT,SERIAL_STOP_1BIT,SERIAL_PARITY_NONE,SERIAL_FLOW_NONE,0,0);
+ Log('');
+ Log(Format('opening baud %d',[SpecifiedBaud]));
+ res:=SerialDeviceOpen(UART0,SpecifiedBaud,SERIAL_DATA_8BIT,SERIAL_STOP_1BIT,SERIAL_PARITY_NONE,SERIAL_FLOW_NONE,0,0);
  if res = ERROR_SUCCESS then
   begin
    Result:=True;
@@ -723,10 +755,12 @@ begin
  //  WaitForThreadTerminate(ReadHandle,0);
  if ReadHandle <> INVALID_HANDLE_VALUE then
   KillThread(ReadHandle);
+ Sleep(2*1000);
  ReadHandle:=INVALID_HANDLE_VALUE;
  if UART0 <> nil then
   SerialDeviceClose(UART0);
  UART0:=Nil;
+ Sleep(2*1000);
 end;
 
 procedure AddHCICommand(OGF:byte; OCF:Word; Params:array of byte);
@@ -780,10 +814,13 @@ begin
      else if (ogf(anItem^.OpCode) = OGF_MARKER) and(ocf(anItem^.OpCode) > 0) then
            begin
             case ocf(anItem^.OpCode) of 
-             DELAY_50MSEC : QueueEvent.WaitFor(50);
-             DELAY_2SEC   : QueueEvent.WaitFor(2000);
-             OPEN_PORT    : OpenUART0;
-             CLOSE_PORT   : CloseUART0;
+             DELAY_50MSEC      : QueueEvent.WaitFor(50);
+             DELAY_2SEC        : QueueEvent.WaitFor(2000);
+             OPEN_PORT         : OpenUART0;
+             CLOSE_PORT        : CloseUART0;
+             SET_DEFAULT_BAUD  : SetBaud(BT_DEFAULT_BAUD);
+             SET_TURBO_BAUD    : SetBaud(BT_TURBO_BAUD);
+             FIRMWARE_END      : SpecifiedBaud:=BT_DEFAULT_BAUD;
             end;
             if Assigned(@MarkerEvent) then MarkerEvent(ocf(anItem^.OpCode));
            end
@@ -907,11 +944,24 @@ begin
  AddHCICommand(OGF_LE_CONTROL,$05,[Addr[5],Addr[4],Addr[3],Addr[2],Addr[1],Addr[0]]);
 end;
 
-procedure SetLEAdvertisingParameters(MinInterval,MaxInterval:Word;
-                                     Type_:byte;
-                                     OwnAddressType,PeerAddressType:byte;
-                                     PeerAddr:TBDAddr;
-                                     ChannelMap,FilterPolicy:byte);
+procedure SetLEScanParameters (Type_ : byte; Interval, Window : Word; OwnAddressType, FilterPolicy : byte);
+begin
+ AddHCICommand (OGF_LE_CONTROL, $0b, [Type_, lo (Interval), hi (Interval), lo (Window), hi (Window), OwnAddressType, FilterPolicy]);
+end;
+
+procedure SetLEScanEnable (State, Duplicates : boolean);
+var 
+ Params : array of byte;
+begin
+ SetLength (Params, 2);
+ if State then Params[0] := $01
+ else Params[0] := $00;
+ if Duplicates then Params[1] := $01
+ else Params[1] := $00;
+ AddHCICommand (OGF_LE_CONTROL, $0c, Params);
+end;
+
+procedure SetLEAdvertisingParameters(MinInterval,MaxInterval:Word; Type_:byte; OwnAddressType,PeerAddressType:byte; PeerAddr:TBDAddr; ChannelMap,FilterPolicy:byte);
 begin
  AddHCICommand(OGF_LE_CONTROL,$06,[lo(MinInterval),hi(MinInterval),
  lo(MaxInterval),hi(MaxInterval),
@@ -989,18 +1039,18 @@ procedure BCMLoadFirmware(fn:string);
 var 
  hdr:array [0 .. 2] of byte;
  Params:array of byte;
- i,n,len:integer;
+ n,len:integer;
  Op:Word;
-const 
- FirmwareLoadDelays = 1;
 begin
- // firmware file BCM43430A1.hcd under \lib\firmware
- //Log('Loading Firmware file ' + fn);
+ // AddMarker(SET_TURBO_BAUD);
+ // AddMarker(CLOSE_PORT);
+ // AddMarker(DELAY_50MSEC);
+ // AddMarker(OPEN_PORT);
  FWHandle:=FSFileOpen(fn,fmOpenRead);
  if FWHandle > 0 then
   begin
    AddMarker(FIRMWARE_START);
-   AddHCICommand(OGF_VENDOR,$2e,[]);
+   AddHCICommand(OGF_VENDOR,$02e,[]);
    n:=FSFileRead(FWHandle,hdr,3);
    while (n = 3) do
     begin
@@ -1015,22 +1065,12 @@ begin
    FSFileClose(FWHandle);
    AddMarker(FIRMWARE_END);
    AddMarker(CLOSE_PORT);
-   // AddMarker(DELAY_2SEC);
-   for I:=1 to FirmwareLoadDelays do
-    AddMarker(DELAY_50MSEC);
+   AddMarker(DELAY_50MSEC);
    AddMarker(OPEN_PORT);
   end
  else
   Log('Error loading Firmware file ' + fn);
 end;
-
-//procedure BCMEnableRadio(Enable:boolean);
-//begin
-// if Enable then
-//  AddHCICommand(OGF_VENDOR,$034,[$01])
-// else
-//  AddHCICommand(OGF_VENDOR,$034,[$00]);
-//end;
 
 function ErrToStr(code:byte):string;
 begin
@@ -1133,6 +1173,15 @@ begin
  Value[0]:=Lo(X);
  Value[1]:=Hi(X);
  ValueLength:=2;
+end;
+
+procedure TBleAttribute.SetArray(X:Array of Byte);
+var 
+ I:Integer;
+begin
+ for I:=Low(X) to High(X) do
+  Value[I]:=X[I];
+ ValueLength:=Length(X);
 end;
 
 procedure TBleAttribute.SetString(X:String);
