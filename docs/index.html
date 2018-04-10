@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script>
+
+function log(s) {
+//var el = document.querySelector('div');
+//el.innerHTML += "<br>" + s
+}
+
+function onButtonClick(alertLevel) {
+  let filters = [];
+  let filterNamePrefix = "Ultibo";
+  filters.push({namePrefix: filterNamePrefix});
+  let options = {};
+  options.filters = filters;
+  options.optionalServices = ['immediate_alert'];
+  log('Requesting Bluetooth Device...');
+  log('with ' + JSON.stringify(options));
+  navigator.bluetooth.requestDevice(options)
+  .then(device => {
+    log('Connecting to Ultibo GATT Server...');
+    return device.gatt.connect();
+  })
+  .then(server => {
+    log('Getting Immediate Alert Service...');
+    return server.getPrimaryService('immediate_alert');
+  })
+  .then(service => {
+    log('Getting Immediate Alert Level Characteristic...');
+    return service.getCharacteristic('alert_level');
+  })
+  .then(characteristic => {
+    log('Writing Alert Level Characteristic...');
+    let dataArray = Uint8Array.of(alertLevel);
+    return characteristic.writeValue(dataArray);
+  })
+  .then(_ => {
+    log('> alert sent');
+  })
+  .catch(error => {
+    log('Argh! ' + error);
+  });
+}
+
+</script>
+</head>
+<body>
+    <button onclick="onButtonClick(0)">Alert None</button>
+    <button onclick="onButtonClick(1)">Alert Middle</button>
+    <button onclick="onButtonClick(2)">Alert High</button>
+    <div></div>
+</body>
+</html>
