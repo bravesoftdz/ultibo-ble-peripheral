@@ -6,7 +6,7 @@ unit uBLE;
 interface
 
 uses 
-Classes, SysUtils;
+SysUtils;
 
 const 
  STANDBY_STATE               = 1;
@@ -65,6 +65,7 @@ const
  ADT_DEVICE_CLASS            = $0D;      // Class of Device
  ADT_MANUFACTURER_SPECIFIC   = $FF;
 
+ ManufacturerTesting         = $ffff;
  ManufacturerApple           = $004c;
  ManufacturerMicrosoft       = $0006;
 
@@ -118,12 +119,12 @@ end;
 function AdvertisingTypeToStr (Type_ : byte) : string;
 begin
  case Type_ of 
-  ADV_IND           : Result:='Connectable undirected advertising (default)';
-  ADV_DIRECT_IND_HI : Result:='Connectable high duty cycle directed advertising';
-  ADV_SCAN_IND      : Result:='Scannable undirected advertising';
-  ADV_NONCONN_IND   : Result:='Non connectable undirected advertising';
-  ADV_DIRECT_IND_LO : Result:='Connectable low duty cycle directed advertising';
-  else                Result:='Reserved for future use (' + Type_.ToHexString(2) + ')';
+  ADV_IND           : Result:='connectable undirected advertising (default)';
+  ADV_DIRECT_IND_HI : Result:='connectable high duty cycle directed advertising';
+  ADV_SCAN_IND      : Result:='scannable undirected advertising';
+  ADV_NONCONN_IND   : Result:='non-connectable undirected advertising';
+  ADV_DIRECT_IND_LO : Result:='connectable low duty cycle directed advertising';
+  else                Result:='reserved for future use (' + Type_.ToHexString(2) + ')';
  end;
 end;
 
@@ -205,6 +206,7 @@ end;
 function Mfg(Manufacturer:Word):String;
 begin
  case Manufacturer of 
+  ManufacturerTesting:Result:='Testing';
   ManufacturerApple:Result:='Apple';
   ManufacturerMicrosoft:Result:='Microsoft'
                         else
@@ -238,7 +240,7 @@ begin
  case ads[0] of 
   ADT_FLAGS :
              begin
-              Log(Format('    adt flags %s',[s]));
+              Log(Format('    flags %s',[s]));
               if (ads[1] and $01) <> 0 then
                Log('        LE Limited Discoverable Mode');
               if (ads[1] and $02) <> 0 then
@@ -251,9 +253,9 @@ begin
                Log('        LE and BR/EDR Host operates simultaneously');
              end;
 
-  ADT_SHORTENED_LOCAL_NAME  : Log(Format('    adt shortened local name %s',[name]));
-  ADT_COMPLETE_LOCAL_NAME   : Log(Format('    adt complete local name %s',[name]));
-  ADT_POWER_LEVEL           : Log(Format('    adt transmit power level (as stated by sender) %s',[dBm(ads[1])]));
+  ADT_SHORTENED_LOCAL_NAME  : Log(Format('    shortened local name %s',[name]));
+  ADT_COMPLETE_LOCAL_NAME   : Log(Format('    complete local name %s',[name]));
+  ADT_POWER_LEVEL           : Log(Format('    transmit power level (as stated by sender) %s',[dBm(ads[1])]));
   ADT_MANUFACTURER_SPECIFIC :
                              begin
                               parsed:=False;
@@ -266,10 +268,10 @@ begin
                                 parsed:=True;
                                end;
                               if not parsed then
-                               Log(Format('    adt manufacturer %04.4x/%s specific %s',[manufacturer,Mfg(manufacturer),s]));
+                               Log(Format('    manufacturer %04.4x/%s %s',[manufacturer,Mfg(manufacturer),RightStr(s,Length(s) - 6)]));
                              end;
   else
-   Log(Format('    adt type %02.2x len %d - %s',[ads[0],Length(ads),s]));
+   Log(Format('    type %02.2x len %d - %s',[ads[0],Length(ads),s]));
  end;
 end;
 

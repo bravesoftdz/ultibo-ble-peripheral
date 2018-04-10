@@ -6,7 +6,7 @@ unit uHCI;
 interface
 
 uses 
-Classes,SysUtils,Serial,BCM2710,GlobalConst;
+Classes,SysUtils,Serial,GlobalConst;
 
 const 
  ATT_PROPERTY_BROADCAST                   = $01;
@@ -166,7 +166,11 @@ const
 
 implementation
 
-uses Platform,GlobalTypes,GlobalConfig,Threads,FileSystem,SyncObjs,Logging;
+uses 
+ {$ifdef BUILD_BCM2835} BCM2835,BCM2708, {$endif}
+ {$ifdef BUILD_BCM2836} BCM2836,BCM2709, {$endif}
+ {$ifdef BUILD_BCM2837} BCM2837,BCM2710, {$endif}
+Platform,GlobalTypes,GlobalConfig,Threads,FileSystem,SyncObjs,Logging;
 
 procedure Log(Message:String);
 begin
@@ -185,12 +189,12 @@ var
 function EventTypeToStr(Type_:byte):string;
 begin
  case Type_ of 
-  ADV_IND          :Result:='Connectable undirected advertising (default)';
-  ADV_DIRECT_IND_HI:Result:='Connectable high duty cycle directed advertising';
-  ADV_SCAN_IND     :Result:='Scannable undirected advertising';
-  ADV_NONCONN_IND  :Result:='Non connectable undirected advertising';
-  ADV_DIRECT_IND_LO:Result:='Connectable low duty cycle directed advertising';
-  else                Result:='Reserved for future use(' + Type_.ToHexString(2) + ')';
+  ADV_IND          :Result:='connectable undirected advertising (default)';
+  ADV_DIRECT_IND_HI:Result:='connectable high duty cycle directed advertising';
+  ADV_SCAN_IND     :Result:='scannable undirected advertising';
+  ADV_NONCONN_IND  :Result:='non-connectable undirected advertising';
+  ADV_DIRECT_IND_LO:Result:='connectable low duty cycle directed advertising';
+  else              Result:='reserved for future use(' + Type_.ToHexString(2) + ')';
  end;
 end;
 
@@ -727,7 +731,9 @@ var
  res:LongWord;
 begin
  Result:=False;
- UART0:=SerialDeviceFindByDescription(BCM2710_UART0_DESCRIPTION);
+ {$ifdef BUILD_BCM2835} UART0:=SerialDeviceFindByDescription(BCM2708_UART0_DESCRIPTION); {$endif}
+ {$ifdef BUILD_BCM2836} UART0:=SerialDeviceFindByDescription(BCM2709_UART0_DESCRIPTION); {$endif}
+ {$ifdef BUILD_BCM2837} UART0:=SerialDeviceFindByDescription(BCM2710_UART0_DESCRIPTION); {$endif}
  if UART0 = nil then
   begin
    Log('Can''t find UART0');

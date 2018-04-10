@@ -3,7 +3,8 @@
 # Requires:
 * a computer that can write an sd card
 * an sd card that you can erase - its contents will be destroyed
-* an RPI3B or RPI3B+ with a power supply
+* an RPI3B or RPI3B+ or RPI ZEROW with a power supply
+    * _**The RPI3B+ and RPI ZEROW are untested**_
 * an hdmi tv and an hdmi cable
 
 # Optional:

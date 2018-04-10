@@ -7,17 +7,10 @@ May 2017 PJ Design Engineering P/L
 *****************************************************)
 
 uses 
-RaspberryPi3,
-HTTP,WebStatus,
-GlobalConfig,
-GlobalConst,
-GlobalTypes,
-Platform,
-Threads,
-SysUtils,
-Classes,Console,Keyboard,
-uBLE,
-Ultibo,uHCI,Logging;
+HTTP,WebStatus, GlobalConfig, GlobalConst, GlobalTypes,
+Platform, Threads, SysUtils, Classes,Console,Ultibo,Logging,
+DWCOTG,FileSystem,MMC,FATFS,Keyboard,
+uBLE,uHCI;
 
 var 
  Console1:TWindowHandle;
@@ -149,6 +142,29 @@ begin
  Log(Format('Immediate Alert - Level %d',[Attribute^.Value[0]]));
 end;
 
+var 
+ BluetoothFirmwareFileName:String = 'BCM43430A1.hcd';
+
+procedure RequireBlueTooth;
+begin
+ Log(Format('Board is %s',[BoardTypeToString(BoardGetType)]));
+ case BoardGetType of 
+  BOARD_TYPE_RPI3B:
+  ;
+  BOARD_TYPE_RPI3B_PLUS:
+                        BluetoothFirmwareFileName:='BCM4345C0.hcd';
+  BOARD_TYPE_RPI_ZERO_W:
+  ;
+  else
+   begin
+    Log('');
+    Log('');
+    Log('Bluetooth is not available on this board');
+    ThreadHalt(0);
+   end;
+ end;
+end;
+
 begin
  Console1 := ConsoleWindowCreate(ConsoleDeviceGetDefault,CONSOLE_POSITION_LEFT,True);
  Log1('Bluetooth Low Energy (BLE) Peripheral Test');
@@ -156,6 +172,7 @@ begin
  StartLogging;
  KeyboardMonitorHandle:=BeginThread(@KeyboardMonitor,Nil,KeyboardMonitorHandle,THREAD_STACK_DEFAULT_SIZE);
  Help;
+ RequireBluetooth;
  BuildAttributes;
  ImmediateAlertLevel^.OnChanged:=@ImmediateAlertChanged;
  AddService($ffe5);

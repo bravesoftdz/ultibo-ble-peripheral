@@ -3,9 +3,13 @@
 # on raspbian, build the program and reboot to it
 
 set -ex
-./build.sh
-sudo cp BCM43430A1.hcd /boot
-sudo cp kernel7.img /boot/ultibo-ble-peripheral-kernel7.img
+for CHIP in 2837 # 2835 2836 2837
+do
+    ./build.sh $CHIP
+    sudo cp ultibo-ble-peripheral-kernel-$CHIP.img /boot/
+done
+
+sudo cp *.hcd /boot
 sudo cp ultibo-ble-peripheral-config.txt ultibo-ble-peripheral-cmdline.txt /boot
 sudo cp /boot/ultibo-ble-peripheral-config.txt /boot/config.txt
 sudo reboot
