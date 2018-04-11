@@ -132,6 +132,7 @@ begin
  LOGGING_INCLUDE_COUNTER:=False;
  LOGGING_INCLUDE_TICKCOUNT:=True;
  CONSOLE_REGISTER_LOGGING:=True;
+ CONSOLE_LOGGING_POSITION:=CONSOLE_POSITION_BOTTOMRIGHT;
  LoggingConsoleDeviceAdd(ConsoleDeviceGetDefault);
  LoggingDeviceSetDefault(LoggingDeviceFindByType(LOGGING_TYPE_CONSOLE));
 end;
@@ -166,7 +167,7 @@ begin
 end;
 
 begin
- Console1 := ConsoleWindowCreate(ConsoleDeviceGetDefault,CONSOLE_POSITION_LEFT,True);
+ Console1:=ConsoleWindowCreate(ConsoleDeviceGetDefault,CONSOLE_POSITION_LEFT,True);
  Log1('Bluetooth Low Energy (BLE) Peripheral Test');
  RestoreBootFile('default','config.txt');
  StartLogging;

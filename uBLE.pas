@@ -89,7 +89,10 @@ procedure StopScanning;
 
 implementation
 
-uses uHCI,Logging;
+uses GlobalTypes,GlobalConst,uHCI,Console,Logging,Platform,Math,Classes;
+
+var 
+ BleWindow:TWindowHandle;
 
 procedure InitialSetup;
 begin
@@ -192,9 +195,9 @@ var
  si:String;
 begin
  if Rssi = 127 then si := 'NU'
- else if Rssi > 128 then si := '-' + IntToStr (256 - Rssi) + 'dBm'
- else if Rssi <= 20 then si := '+' + IntToStr (Rssi) + 'dBm'
- else si := '??';
+ else if Rssi > 128 then si := '-' + IntToStr (256 - Rssi) + ' dBm'
+ else if Rssi <= 20 then si := '+' + IntToStr (Rssi) + ' dBm'
+ else si := '? dBm';
  Result:=si;
 end;
 
@@ -214,7 +217,20 @@ begin
  end;
 end;
 
-procedure DecodeADS (ads : array of byte; RxRssi : byte);
+type 
+ TAdReceivedRecord = record
+  AddressString:String;
+  LastData:Array of Byte;
+  LastRxRssi:Byte;
+  ReceivedCount:LongWord;
+  Rank:LongWord;
+  CompleteName:String;
+  Shortenedname:String;
+  function SummaryString:String;
+  procedure AddToLog(Message:String);
+ end;
+
+procedure DecodeADS (ads : array of byte; var AdRecord : TAdReceivedRecord);
 var 
  uuid : array of byte;
  len : integer;
@@ -253,8 +269,16 @@ begin
                Log('        LE and BR/EDR Host operates simultaneously');
              end;
 
-  ADT_SHORTENED_LOCAL_NAME  : Log(Format('    shortened local name %s',[name]));
-  ADT_COMPLETE_LOCAL_NAME   : Log(Format('    complete local name %s',[name]));
+  ADT_SHORTENED_LOCAL_NAME  :
+                             begin
+                              AdRecord.ShortenedName:=name;
+                              Log(Format('    shortened local name %s',[name]));
+                             end;
+  ADT_COMPLETE_LOCAL_NAME   :
+                             begin
+                              AdRecord.CompleteName:=name;
+                              Log(Format('    complete local name %s',[name]));
+                             end;
   ADT_POWER_LEVEL           : Log(Format('    transmit power level (as stated by sender) %s',[dBm(ads[1])]));
   ADT_MANUFACTURER_SPECIFIC :
                              begin
@@ -275,7 +299,7 @@ begin
  end;
 end;
 
-procedure DecodeReport (Report : array of byte; RxRssi : byte);
+procedure DecodeReport (Report : array of byte; var AdRecord : TAdReceivedRecord);
 var 
  {$ifdef show_data}
  s : string;
@@ -307,7 +331,7 @@ begin
           SetLength (ads, len);
           Move (Report[i], ads[0], len);
           i := i + len;
-          DecodeADS (ads, RxRssi);
+          DecodeADS (ads,AdRecord);
           gl := true;
          end
    else
@@ -321,24 +345,46 @@ end;
 function PublicOrRandom(X:Byte):String;
 begin
  if X = 0 then
-  Result:='public'
+  Result:='pbl'
  else
-  Result:='random';
+  Result:='rnd';
+end;
+
+function TAdReceivedRecord.SummaryString:String;
+begin
+ Result:=Format('(Sorting rank %03.3d) %s/%s received %4d rx %7s %s %s',[Rank,AddressString,PublicOrRandom(LastData[1]),ReceivedCount,dBm(LastRxRssi),CompleteName,ShortenedName]);
+end;
+
+procedure TAdReceivedRecord.AddToLog(Message:String);
+begin
+ Log(Format('%s %s/%s %7s',[Message,AddressString,PublicOrRandom(LastData[1]),dBm(LastRxRssi)]));
+end;
+
+function ReverseCompare(List:TStringList;A,B:Integer):Integer;
+begin
+ if List[A] = List[B] then
+  Result:=0
+ else if List[A] > List[B] then
+       Result:=-1
+ else
+  Result:=+1;
 end;
 
 var 
- ReceivedMacList:Array of String;
+ LastAdClock:LongWord;
+ ReceivedAdList:Array of TAdReceivedRecord;
+ Sorter:TStringList;
 
 procedure DoLEEvent (SubEvent : byte; Params : array of byte);
 const 
  ReportHeaderLength = 9;
 var 
  ConnectionHandle:Word;
- ofs,i,j,len,rl:Integer;
+ ofs,i,j,k,len,rl:Integer;
  nr:Byte;
- rpt:Array of Byte;
  ReceivedAddr:String;
  Found:Boolean;
+ S:String;
 {$ifdef show_data}
  s : string;
 {$endif}
@@ -370,33 +416,66 @@ begin
             rl := Params[ofs + 8]; // length
             if ofs + ReportHeaderLength + rl <= len then
              begin
-              ReceivedAddr:=Params[ofs + 7].ToHexString (2) + ':' +
-                            Params[ofs + 6].ToHexString (2) + ':' +
-                            Params[ofs + 5].ToHexString (2) + ':' +
-                            Params[ofs + 4].ToHexString (2) + ':' +
-                            Params[ofs + 3].ToHexString (2) + ':' +
+              ReceivedAddr:=Params[ofs + 7].ToHexString (2) + // ':' +
+                            Params[ofs + 6].ToHexString (2) + // ':' +
+                            Params[ofs + 5].ToHexString (2) + // ':' +
+                            Params[ofs + 4].ToHexString (2) + // ':' +
+                            Params[ofs + 3].ToHexString (2) + // ':' +
                             Params[ofs + 2].ToHexString (2);
+              if ClockGetCount - LastAdClock >= 1*1000*1000 then
+               begin
+                ConsoleWindowClear(BleWindow);
+                Sorter.Clear;
+                for K:=Low(ReceivedAdList) to Min(High(ReceivedAdList),20) do
+                 Sorter.Add(ReceivedAdList[K].SummaryString);
+                Sorter.CustomSort(ReverseCompare);
+                for S in Sorter do
+                 ConsoleWindowWriteLn(BleWindow,S);
+               end;
+              LastAdClock:=ClockGetCount;
               Found:=False;
-              for J:=Low(ReceivedMacList) to High(ReceivedMacList) do
-               if ReceivedMacList[J] = ReceivedAddr then
+              for J:=Low(ReceivedAdList) to High(ReceivedAdList) do
+               if ReceivedAdList[J].AddressString = ReceivedAddr then
                 begin
                  Found:=True;
+                 with ReceivedAdList[J] do
+                  begin
+                   Inc(ReceivedCount);
+                   Inc(Rank,Round(0.5*(999 - Rank)));
+                   if Rank > 999 then
+                    Rank:=999;
+                   for K:=Low(ReceivedAdList) to High(ReceivedAdList) do
+                    if K <> J then
+                     Dec(ReceivedAdList[K].Rank,Round(0.25*(ReceivedAdList[K].Rank)));
+                   SetLength(LastData,rl);
+                   Move(Params[ofs + ReportHeaderLength],LastData[0],rl);
+                   LastRxRssi:=Params[ofs + ReportHeaderLength + rl];
+                   // ConsoleWindowWriteLn(BleWindow,SummaryString);
+                  end;
                  break;
                 end;
               if not Found then
                begin
-                SetLength(ReceivedMacList,1 + Length(ReceivedMacList));
-                ReceivedMacList[High(ReceivedMacList)]:=ReceivedAddr;
-                Log(Format('scan report %d of %d %s/%s %7s',[
-                    i, nr,
-                    ReceivedAddr,PublicOrRandom(Params[ofs + 1]),
-                dBm(Params[ofs + ReportHeaderLength + rl])]));
-                Log(Format('    %s',[EventTypeToStr(Params[ofs])]));
-                SetLength (rpt, rl);
-                Move(Params[ofs + ReportHeaderLength],rpt[0],rl);
-                DecodeReport(rpt,Params[ofs + ReportHeaderLength + rl]);
-                if (Params[ofs] = ADV_IND) then
-                 LeCreateConnection(ReceivedAddr,Params[ofs+2],Params[ofs+3],Params[ofs+4],Params[ofs+5],Params[ofs+6],Params[ofs+7]);
+                SetLength(ReceivedAdList,1 + Length(ReceivedAdList));
+                //              for I:=High(ReceivedAdList) downto 1 do
+                //               ReceivedAdList[I]:=ReceivedAdList[I-1];
+                with ReceivedAdList[High(ReceivedAdList)] do
+                 begin
+                  AddressString:=ReceivedAddr;
+                  Log(AddressString);
+                  Rank:=999;
+                  ReceivedCount:=1;
+                  CompleteName:='';
+                  Shortenedname:='';
+                  SetLength(LastData,rl);
+                  Move(Params[ofs + ReportHeaderLength],LastData[0],rl);
+                  LastRxRssi:=Params[ofs + ReportHeaderLength + rl];
+                  AddToLog(Format('scan report %d of %d',[i,nr]));
+                  Log(Format('    %s',[EventTypeToStr(Params[ofs])]));
+                  DecodeReport(LastData,ReceivedAdList[High(ReceivedAdList)]);
+                  if (Params[ofs] = ADV_IND) then
+                   LeCreateConnection(ReceivedAddr,Params[ofs+2],Params[ofs+3],Params[ofs+4],Params[ofs+5],Params[ofs+6],Params[ofs+7]);
+                 end;
                end;
               ofs := ofs + rl + ReportHeaderLength + 1;
              end
@@ -414,7 +493,13 @@ begin
 end;
 
 initialization
-SetLength(ReceivedMacList,0);
+BleWindow:=ConsoleWindowCreate(ConsoleDeviceGetDefault,CONSOLE_POSITION_TOPRIGHT,True);
+ConsoleWindowSetBackcolor(BleWindow,COLOR_BLACK);
+ConsoleWindowSetForecolor(BleWindow,COLOR_WHITE);
+ConsoleWindowClear(BleWindow);
+SetLength(ReceivedAdList,0);
+Sorter:=TStringList.Create;
+LastAdClock:=ClockGetCount;
 ClearAdvertisingData;
 SetLEEvent (@DoLEEvent);
 end.
