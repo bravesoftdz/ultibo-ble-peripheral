@@ -9,7 +9,7 @@ PATH=$HOME/hub-linux-arm-2.3.0-pre10/bin:$PATH
 mkdir -p release
 rm -rf release/*
 
-rm *kernel*.img
+rm -f *kernel*.img
 for CHIP in 2835 2836 2837
 do
     ./build.sh $CHIP

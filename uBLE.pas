@@ -19,8 +19,8 @@ const
  INITIAL_SETUP_DONE          = 1;
 
  // HCI Funcional Specification Section 7.8.10, Core 4.1 page 1255
- LL_SCAN_PASSIVE            = $00;
- LL_SCAN_ACTIVE            = $01;
+ LL_SCAN_PASSIVE             = $00;
+ LL_SCAN_ACTIVE              = $01;
 
  //  BLUETOOTH SPECIFICATION Version 4.2 [Vol 2, Part E] page 970
  // advertising type
@@ -68,6 +68,7 @@ const
  ManufacturerTesting         = $ffff;
  ManufacturerApple           = $004c;
  ManufacturerMicrosoft       = $0006;
+ UltiboSignature             = $e29a;
 
 var 
  LLState : integer = STANDBY_STATE; // link layer state
@@ -99,11 +100,11 @@ begin
  NoOP;
  ReadLocalSupportedCommands;
  ReadLocalSupportedFeatures;
- SetLEEventMask ($ff);
+ SetLEEventMask($ff);
  ReadLEBufferSize;
  ReadLESupportedFeatures;
  ReadBDADDR;
- AddMarker (INITIAL_SETUP_DONE);
+ AddMarker(INITIAL_SETUP_DONE);
 end;
 
 procedure StartPassiveScanning;
@@ -226,7 +227,12 @@ type
   Rank:LongWord;
   CompleteName:String;
   Shortenedname:String;
+  Uuid16s:Array of Word;
+  IsUltibo:Boolean;
+  UltiboUpTime:LongWord;
+  UltiboScanResponseSerialNumber:Byte;
   function SummaryString:String;
+  function UltiboSummaryString:String;
   procedure AddToLog(Message:String);
  end;
 
@@ -240,6 +246,7 @@ var
  i : integer;
  s : string;
  name : string;
+ ManufacturerSignature : Word;
  //{$endif}
 begin
  //{$ifdef show_data}
@@ -268,7 +275,26 @@ begin
               if (ads[1] and $10) <> 0 then
                Log('        LE and BR/EDR Host operates simultaneously');
              end;
-
+  ADT_INCOMPLETE_UUID16:
+                        begin
+                         I:=1;
+                         while I <= High(ads) do
+                          begin
+                           SetLength(AdRecord.Uuid16s,Length(AdRecord.Uuid16s) + 1);
+                           AdRecord.Uuid16s[Length(AdRecord.Uuid16s) - 1]:=(ads[I + 1] shl 8) or ads[I];
+                           Inc(I,2);
+                          end;
+                        end;
+  ADT_COMPLETE_UUID16:
+                      begin
+                       I:=1;
+                       while I <= High(ads) do
+                        begin
+                         SetLength(AdRecord.Uuid16s,Length(AdRecord.Uuid16s) + 1);
+                         AdRecord.Uuid16s[Length(AdRecord.Uuid16s) - 1]:=(ads[I + 1] shl 8) or ads[I];
+                         Inc(I,2);
+                        end;
+                      end;
   ADT_SHORTENED_LOCAL_NAME  :
                              begin
                               AdRecord.ShortenedName:=name;
@@ -284,15 +310,37 @@ begin
                              begin
                               parsed:=False;
                               manufacturer:=(ads[2] shl 8) or ads[1];
-                              if (len = 26) and (manufacturer = ManufacturerApple) and (ads[3] = $02) and (ads[4] = $15) then
+                              if (manufacturer = ManufacturerTesting) and (len >= 4) then
                                begin
-                                SetLength (uuid, 16);
-                                Move(ads[5],uuid[0],16);
-                                Log(Format('    iBeacon uuid %s major %04.4x minor %04.4x signal power %s',[UUIDToStr(uuid),ads[21] shl 8 + ads[22],ads[23] shl 8 + ads[24],ads[25]]));
-                                parsed:=True;
-                               end;
+                                ManufacturerSignature:=(ads[4] shl 8) or ads[3];
+                                if ManufacturerSignature = UltiboSignature then
+                                 begin
+                                  Parsed:=True;
+                                  if ads[5] = $00 then
+                                   begin
+                                    AdRecord.IsUltibo:=True;
+                                    AdRecord.UltiboScanResponseSerialNumber:=Ads[6];
+                                    AdRecord.UltiboUpTime:=(((((Ads[10] shl 8) or Ads[9]) shl 8) or Ads[8]) shl 8) or Ads[7];
+                                    Log(Format('    ultibo %s',[AdRecord.UltiboSummaryString]));
+                                   end
+                                  else
+                                   Log(Format('    ultibo unrecognized %s',[RightStr(s,Length(s) - 12)]));
+                                 end;
+                               end
+                              else if (len = 26) and (manufacturer = ManufacturerApple) and (ads[3] = $02) and (ads[4] = $15) then
+                                    begin
+                                     SetLength (uuid, 16);
+                                     Move(ads[5],uuid[0],16);
+                                     Log(Format('    iBeacon uuid %s major %04.4x minor %04.4x signal power %s',[UUIDToStr(uuid),ads[21] shl 8 + ads[22],ads[23] shl 8 + ads[24],ads[25]]));
+                                     parsed:=True;
+                                    end;
                               if not parsed then
-                               Log(Format('    manufacturer %04.4x/%s %s',[manufacturer,Mfg(manufacturer),RightStr(s,Length(s) - 6)]));
+                               begin
+                                if manufacturer = ManufacturerTesting then
+                                 Log(Format('    testing %s',[RightStr(s,Length(s) - 6)]))
+                                else
+                                 Log(Format('    manufacturer %04.4x/%s %s',[manufacturer,Mfg(manufacturer),RightStr(s,Length(s) - 6)]));
+                               end;
                              end;
   else
    Log(Format('    type %02.2x len %d - %s',[ads[0],Length(ads),s]));
@@ -351,8 +399,24 @@ begin
 end;
 
 function TAdReceivedRecord.SummaryString:String;
+var 
+ UltiboString:String;
+ Uuid:Word;
+ Uuids:String;
 begin
- Result:=Format('(Sorting rank %03.3d) %s/%s received %4d rx %7s %s %s',[Rank,AddressString,PublicOrRandom(LastData[1]),ReceivedCount,dBm(LastRxRssi),CompleteName,ShortenedName]);
+ if IsUltibo then
+  UltiboString:=UltiboSummaryString
+ else
+  UltiboString:='';
+ Uuids:='';
+ for Uuid in Uuid16s do
+  Uuids:=Uuids + Uuid.ToHexString(4) + ' ';
+ Result:=Format('(Sorting rank %03.3d) %s/%s received %4d rx %7s %s %s %s %s',[Rank,AddressString,PublicOrRandom(LastData[1]),ReceivedCount,dBm(LastRxRssi),CompleteName,ShortenedName,uuids,UltiboString]);
+end;
+
+function TAdReceivedRecord.UltiboSummaryString:String;
+begin
+ Result:=Format('up %d scan %d',[UltiboUpTime,UltiboScanResponseSerialNumber]);
 end;
 
 procedure TAdReceivedRecord.AddToLog(Message:String);
@@ -380,7 +444,7 @@ const
  ReportHeaderLength = 9;
 var 
  ConnectionHandle:Word;
- ofs,i,j,k,len,rl:Integer;
+ ofs,i,j,k,l,len,rl:Integer;
  nr:Byte;
  ReceivedAddr:String;
  Found:Boolean;
@@ -392,9 +456,9 @@ begin
  len := length (Params);
 {$ifdef show_data}
  s:='';
- for i:=low (Params) to high (Params) do
-  s:=s + ' ' + Params[i].ToHexString (2);
- Log ('LEEvent ' + SubEvent.ToHexString (2) + ' Params ' + s);
+ for i:=low(Params) to high(Params) do
+  s:=s + ' ' + Params[i].ToHexString(2);
+ Log ('LEEvent ' + SubEvent.ToHexString(2) + ' Params ' + s);
 {$endif}
  case SubEvent of 
   $01 :
@@ -440,30 +504,36 @@ begin
                  Found:=True;
                  with ReceivedAdList[J] do
                   begin
+                   SetLength(LastData,rl);
+                   Move(Params[ofs + ReportHeaderLength],LastData[0],rl);
+                   LastRxRssi:=Params[ofs + ReportHeaderLength + rl];
                    Inc(ReceivedCount);
                    Inc(Rank,Round(0.5*(999 - Rank)));
                    if Rank > 999 then
                     Rank:=999;
                    for K:=Low(ReceivedAdList) to High(ReceivedAdList) do
                     if K <> J then
-                     Dec(ReceivedAdList[K].Rank,Round(0.25*(ReceivedAdList[K].Rank)));
-                   SetLength(LastData,rl);
-                   Move(Params[ofs + ReportHeaderLength],LastData[0],rl);
-                   LastRxRssi:=Params[ofs + ReportHeaderLength + rl];
-                   // ConsoleWindowWriteLn(BleWindow,SummaryString);
+                     Dec(ReceivedAdList[K].Rank,Round(0.05*(ReceivedAdList[K].Rank)));
+                   K:=0;
+                   L:=0;
+                   for K:=Low(ReceivedAdList) to High(ReceivedAdList) do
+                    if ReceivedAdList[K].Rank > 10 then
+                     begin
+                      ReceivedAdList[L]:=ReceivedAdList[K];
+                      Inc(L);
+                     end;
+                   SetLength(ReceivedAdList,L);
                   end;
                  break;
                 end;
               if not Found then
                begin
                 SetLength(ReceivedAdList,1 + Length(ReceivedAdList));
-                //              for I:=High(ReceivedAdList) downto 1 do
-                //               ReceivedAdList[I]:=ReceivedAdList[I-1];
                 with ReceivedAdList[High(ReceivedAdList)] do
                  begin
                   AddressString:=ReceivedAddr;
-                  Log(AddressString);
                   Rank:=999;
+                  SetLength(Uuid16s,0);
                   ReceivedCount:=1;
                   CompleteName:='';
                   Shortenedname:='';

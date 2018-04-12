@@ -43,14 +43,37 @@ begin
  Log1(Format('Restoring from %s done',[Source]));
 end;
 
+var 
+ UltiboAd:Array of Byte;
+ ScanResponseSerialNumber:Byte;
+
+procedure UpdateBroadcastData;
+var 
+ UpTime:Longword;
+begin
+ UpTime:=ClockGetCount div (1*1000*1000);
+ SetLength(UltiboAd,8);
+ UltiboAd[0]:=Lo(ManufacturerTesting);
+ UltiboAd[1]:=Hi(ManufacturerTesting);
+ UltiboAd[2]:=Lo(UltiboSignature);
+ UltiboAd[3]:=Hi(UltiboSignature);
+ UltiboAd[4]:=$00;
+ UltiboAd[5]:=ScanResponseSerialNumber;
+ UltiboAd[6]:=Lo(UpTime);
+ UltiboAd[7]:=Hi(UpTime);
+ ClearAdvertisingData;
+ AddAdvertisingData(ADT_FLAGS,[$1a]);
+ AddAdvertisingData(ADT_INCOMPLETE_UUID16,[Lo($180f),Hi($180f)]);
+ AddAdvertisingData(ADT_COMPLETE_LOCAL_NAME,'Ultibo');
+ AddAdvertisingData(ADT_MANUFACTURER_SPECIFIC,UltiboAd);
+end;
+
 procedure StartLeAdvertising;
 var 
  ZeroAddress:TBDAddr = ($00,$00,$00,$00,$00,$00);
 begin
  SetLEAdvertisingParameters(1000,1000,ADV_IND,$00,$00,ZeroAddress,$07,$00);
- ClearAdvertisingData;
- AddAdvertisingData(ADT_FLAGS,[$1a]);
- AddAdvertisingData(ADT_COMPLETE_LOCAL_NAME,'Ultibo');
+ UpdateBroadcastData;
  StartUndirectedAdvertising;
 end;
 
@@ -197,6 +220,7 @@ begin
  AddMarker(DELAY_50MSEC);              // ensure read thread has started
  ReadBDADDR;                           // read newly assigned BD address
  AddMarker(INIT_COMPLETE);             // indicate initialisation complete
- StartLeAdvertising;
+ ScanResponseSerialNumber:=0;
+ //StartLeAdvertising;
  StartPassiveScanning;
 end.
