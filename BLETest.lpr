@@ -221,6 +221,6 @@ begin
  ReadBDADDR;                           // read newly assigned BD address
  AddMarker(INIT_COMPLETE);             // indicate initialisation complete
  ScanResponseSerialNumber:=0;
- //StartLeAdvertising;
+ StartLeAdvertising;
  StartPassiveScanning;
 end.

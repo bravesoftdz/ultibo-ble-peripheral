@@ -398,6 +398,9 @@ var
  Message:String;
  IsCommand:Boolean;
  DataLength:Integer;
+ MtuRequest:Word;
+const 
+ ATT_MTU_DEFAULT = 23;
 function GetByte:Byte;
 begin
  Result:=pkt[I];
@@ -420,6 +423,12 @@ begin
        while I < Length(pkt) do
         s:=s + GetByte.ToHexString(2);
        Log(Format('%02.2x) rx error data %s',[ConnectionHandle,s]));
+      end;
+  $02:
+      begin
+       MtuRequest:=GetWord;
+       Log(Format('%02.2x) mtu request %d responding with ATT_MTU_DEFAULT %d',[ConnectionHandle,MtuRequest,ATT_MTU_DEFAULT]));
+       SendData(ConnectionHandle,[$03,Lo(ATT_MTU_DEFAULT),Hi(ATT_MTU_DEFAULT)]);
       end;
   // $04:
   //    begin
